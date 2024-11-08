@@ -5,7 +5,7 @@
 
 This action exports Github CI/CD workflows to any endpoint compatible with OpenTelemetry.
 
-This is a fork of [otel-export-trace-action](hhttps://github.com/inception-health/otel-export-trace-action) with more features and better support.
+This is a fork of [otel-export-trace-action](https://github.com/inception-health/otel-export-trace-action) with more features and better support.
 
 ![Example](./docs/honeycomb-example.png)
 
