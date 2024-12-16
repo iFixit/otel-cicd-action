@@ -36,7 +36,7 @@ export function stringToHeader(value: string): StringDict {
 }
 
 function isHttpEndpoint(endpoint: string): boolean {
-  return endpoint.startsWith("https://");
+  return endpoint.startsWith("https://") || endpoint.startsWith("http://");
 }
 
 export function createTracerProvider(
