@@ -47,7 +47,7 @@ function stringToHeader(value) {
 }
 exports.stringToHeader = stringToHeader;
 function isHttpEndpoint(endpoint) {
-    return endpoint.startsWith("https://");
+    return endpoint.startsWith("https://") || endpoint.startsWith("http://");
 }
 function createTracerProvider(otlpEndpoint, otlpHeaders, workflowRunJobs, otelServiceName) {
     const serviceName = otelServiceName ||
