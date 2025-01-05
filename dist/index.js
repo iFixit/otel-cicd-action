@@ -31263,11 +31263,11 @@ async function listJobsForWorkflowRun(context, octokit, runId) {
 async function getPRsLabels(context, octokit, prNumbers) {
     const labels = {};
     for (const prNumber of prNumbers) {
-        labels[prNumber] = await getPRLabels(context, octokit, prNumber);
+        labels[prNumber] = await listLabelsOnIssue(context, octokit, prNumber);
     }
     return labels;
 }
-async function getPRLabels(context, octokit, prNumber) {
+async function listLabelsOnIssue(context, octokit, prNumber) {
     return await octokit.paginate(octokit.rest.issues.listLabelsOnIssue, {
         ...context.repo,
         issue_number: prNumber,
@@ -33804,7 +33804,7 @@ var ATTR_SERVICE_INSTANCE_ID = 'service.instance.id';
  */
 var ATTR_SERVICE_NAMESPACE = 'service.namespace';
 
-const tracer$1 = trace.getTracer("otel-cicd-action");
+const tracer$2 = trace.getTracer("otel-cicd-action");
 async function traceStep(step) {
     if (!step.completed_at || !step.started_at) {
         coreExports.warning(`Step ${step.name} is not completed yet.`);
@@ -33817,7 +33817,7 @@ async function traceStep(step) {
     const startTime = new Date(step.started_at);
     const completedTime = new Date(step.completed_at);
     const attributes = stepToAttributes(step);
-    await tracer$1.startActiveSpan(step.name, { attributes, startTime }, async (span) => {
+    await tracer$2.startActiveSpan(step.name, { attributes, startTime }, async (span) => {
         const code = step.conclusion === "failure" ? SpanStatusCode.ERROR : SpanStatusCode.OK;
         span.setStatus({ code });
         // Some skipped and post jobs return completed_at dates that are older than started_at
@@ -33833,6 +33833,71 @@ function stepToAttributes(step) {
         "github.job.step.started_at": step.started_at ?? undefined,
         "github.job.step.completed_at": step.completed_at ?? undefined,
         error: step.conclusion === "failure",
+    };
+}
+
+const tracer$1 = trace.getTracer("otel-cicd-action");
+async function traceJob(job) {
+    if (!job.completed_at) {
+        coreExports.warning(`Job ${job.id} is not completed yet`);
+        return;
+    }
+    const startTime = new Date(job.started_at);
+    const completedTime = new Date(job.completed_at);
+    const attributes = jobToAttributes(job);
+    await tracer$1.startActiveSpan(job.name, { attributes, startTime }, async (span) => {
+        const code = job.conclusion === "failure" ? SpanStatusCode.ERROR : SpanStatusCode.OK;
+        span.setStatus({ code });
+        for (const step of job.steps ?? []) {
+            await traceStep(step);
+        }
+        // Some skipped and post jobs return completed_at dates that are older than started_at
+        span.end(new Date(Math.max(startTime.getTime(), completedTime.getTime())));
+    });
+}
+function jobToAttributes(job) {
+    // Heuristic for task type
+    let taskType;
+    if (job.name.toLowerCase().includes("build")) {
+        taskType = CICD_PIPELINE_TASK_TYPE_VALUE_BUILD;
+    }
+    else if (job.name.toLowerCase().includes("test")) {
+        taskType = CICD_PIPELINE_TASK_TYPE_VALUE_TEST;
+    }
+    else if (job.name.toLowerCase().includes("deploy")) {
+        taskType = CICD_PIPELINE_TASK_TYPE_VALUE_DEPLOY;
+    }
+    return {
+        // OpenTelemetry semantic convention CICD Pipeline Attributes
+        // https://opentelemetry.io/docs/specs/semconv/attributes-registry/cicd/
+        [ATTR_CICD_PIPELINE_TASK_NAME]: job.name,
+        [ATTR_CICD_PIPELINE_TASK_RUN_ID]: job.id,
+        [ATTR_CICD_PIPELINE_TASK_RUN_URL_FULL]: job.html_url ?? undefined,
+        [ATTR_CICD_PIPELINE_TASK_TYPE]: taskType,
+        "github.job.id": job.id,
+        "github.job.name": job.name,
+        "github.job.run_id": job.run_id,
+        "github.job.run_url": job.run_url,
+        "github.job.run_attempt": job.run_attempt ?? 1,
+        "github.job.node_id": job.node_id,
+        "github.job.head_sha": job.head_sha,
+        "github.job.url": job.url,
+        "github.job.html_url": job.html_url ?? undefined,
+        "github.job.status": job.status,
+        "github.job.runner_id": job.runner_id ?? undefined,
+        "github.job.runner_group_id": job.runner_group_id ?? undefined,
+        "github.job.runner_group_name": job.runner_group_name ?? undefined,
+        "github.job.runner_name": job.runner_name ?? undefined,
+        "github.job.conclusion": job.conclusion ?? undefined,
+        "github.job.labels": job.labels.join(", "),
+        "github.job.created_at": job.created_at,
+        "github.job.started_at": job.started_at,
+        "github.job.completed_at": job.completed_at ?? undefined,
+        "github.conclusion": job.conclusion ?? undefined, // FIXME: it overrides the workflow conclusion
+        "github.job.check_run_url": job.check_run_url,
+        "github.job.workflow_name": job.workflow_name ?? undefined,
+        "github.job.head_branch": job.head_branch ?? undefined,
+        error: job.conclusion === "failure",
     };
 }
 
@@ -33944,69 +34009,6 @@ function prsToAttributes(pullRequests, prLabels) {
         attributes[`${prefix}.base.repo.name`] = pr.base.repo.name;
     }
     return attributes;
-}
-async function traceJob(job) {
-    if (!job.completed_at) {
-        coreExports.warning(`Job ${job.id} is not completed yet`);
-        return;
-    }
-    const startTime = new Date(job.started_at);
-    const completedTime = new Date(job.completed_at);
-    const attributes = jobToAttributes(job);
-    await tracer.startActiveSpan(job.name, { attributes, startTime }, async (span) => {
-        const code = job.conclusion === "failure" ? SpanStatusCode.ERROR : SpanStatusCode.OK;
-        span.setStatus({ code });
-        for (const step of job.steps ?? []) {
-            await traceStep(step);
-        }
-        // Some skipped and post jobs return completed_at dates that are older than started_at
-        span.end(new Date(Math.max(startTime.getTime(), completedTime.getTime())));
-    });
-}
-function jobToAttributes(job) {
-    // Heuristic for task type
-    let taskType;
-    if (job.name.toLowerCase().includes("build")) {
-        taskType = CICD_PIPELINE_TASK_TYPE_VALUE_BUILD;
-    }
-    else if (job.name.toLowerCase().includes("test")) {
-        taskType = CICD_PIPELINE_TASK_TYPE_VALUE_TEST;
-    }
-    else if (job.name.toLowerCase().includes("deploy")) {
-        taskType = CICD_PIPELINE_TASK_TYPE_VALUE_DEPLOY;
-    }
-    return {
-        // OpenTelemetry semantic convention CICD Pipeline Attributes
-        // https://opentelemetry.io/docs/specs/semconv/attributes-registry/cicd/
-        [ATTR_CICD_PIPELINE_TASK_NAME]: job.name,
-        [ATTR_CICD_PIPELINE_TASK_RUN_ID]: job.id,
-        [ATTR_CICD_PIPELINE_TASK_RUN_URL_FULL]: job.html_url ?? undefined,
-        [ATTR_CICD_PIPELINE_TASK_TYPE]: taskType,
-        "github.job.id": job.id,
-        "github.job.name": job.name,
-        "github.job.run_id": job.run_id,
-        "github.job.run_url": job.run_url,
-        "github.job.run_attempt": job.run_attempt ?? 1,
-        "github.job.node_id": job.node_id,
-        "github.job.head_sha": job.head_sha,
-        "github.job.url": job.url,
-        "github.job.html_url": job.html_url ?? undefined,
-        "github.job.status": job.status,
-        "github.job.runner_id": job.runner_id ?? undefined,
-        "github.job.runner_group_id": job.runner_group_id ?? undefined,
-        "github.job.runner_group_name": job.runner_group_name ?? undefined,
-        "github.job.runner_name": job.runner_name ?? undefined,
-        "github.job.conclusion": job.conclusion ?? undefined,
-        "github.job.labels": job.labels.join(", "),
-        "github.job.created_at": job.created_at,
-        "github.job.started_at": job.started_at,
-        "github.job.completed_at": job.completed_at ?? undefined,
-        "github.conclusion": job.conclusion ?? undefined, // FIXME: it overrides the workflow conclusion
-        "github.job.check_run_url": job.check_run_url,
-        "github.job.workflow_name": job.workflow_name ?? undefined,
-        "github.job.head_branch": job.head_branch ?? undefined,
-        error: job.conclusion === "failure",
-    };
 }
 
 var src$5 = {};
@@ -86092,7 +86094,7 @@ async function run() {
     coreExports.info("Get jobs");
     const jobs = await listJobsForWorkflowRun(githubExports.context, octokit, runId);
     coreExports.info("Get PRs labels");
-    const prNumbers = workflowRun.pull_requests?.map((pr) => pr.number) ?? [];
+    const prNumbers = (workflowRun.pull_requests ?? []).map((pr) => pr.number);
     const prLabels = await getPRsLabels(githubExports.context, octokit, prNumbers);
     coreExports.info(`Create tracer provider for ${otlpEndpoint}`);
     const attributes = {

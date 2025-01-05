@@ -3,7 +3,7 @@ import util from "node:util";
 import { jest } from "@jest/globals";
 import * as core from "./__fixtures__/core";
 import * as github from "./__fixtures__/github";
-import type { Octokit } from "./github/github";
+import type { Octokit } from "./github";
 import { replayOctokit } from "./replay";
 
 // Mocks should be declared before the module being tested is imported.
@@ -47,8 +47,8 @@ describe("run", () => {
       }
     });
 
-    // biome-ignore lint/suspicious/noExplicitAny: any is used to mock console.dir
-    jest.spyOn(console, "dir").mockImplementation((item?: any) => {
+    // ConsoleSpanExporter calls console.dir to output telemetry, so we mock it to save the output
+    jest.spyOn(console, "dir").mockImplementation((item?: unknown) => {
       output += `${util.inspect(item)}\n`;
     });
   });
@@ -61,7 +61,7 @@ describe("run", () => {
     output = "";
   });
 
-  it("should run without artifacts", async () => {
+  it("should run", async () => {
     process.env["GITHUB_REPOSITORY"] = "biomejs/biome";
     runId = "12541749172";
 
