@@ -35,7 +35,7 @@ function stepToAttributes(step: Step, jobName: string, workflowName: string): At
     "github.job.step.status": step.status,
     "github.job.step.conclusion": step.conclusion ?? undefined,
     "github.job.step.name": step.name,
-    "github.job.step.number": step.number,
+    "github.job.step.number": step.number.toString(),
     "github.job.step.started_at": step.started_at ?? undefined,
     "github.job.step.completed_at": step.completed_at ?? undefined,
     "github.job.name": jobName,
