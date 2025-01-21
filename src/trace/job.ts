@@ -32,7 +32,7 @@ async function traceJob(job: components["schemas"]["job"], annotations?: compone
     span.setStatus({ code });
 
     for (const step of job.steps ?? []) {
-      await traceStep(step);
+      await traceStep(step, job.name, job.workflow_name ?? "");
     }
 
     // Some skipped and post jobs return completed_at dates that are older than started_at
@@ -79,7 +79,7 @@ function jobToAttributes(job: components["schemas"]["job"]): Attributes {
     "github.job.completed_at": job.completed_at ?? undefined,
     "github.conclusion": job.conclusion ?? undefined, // FIXME: it overrides the workflow conclusion
     "github.job.check_run_url": job.check_run_url,
-    "github.job.workflow_name": job.workflow_name ?? undefined,
+    "github.workflow": job.workflow_name ?? undefined,
     "github.job.head_branch": job.head_branch ?? undefined,
     error: job.conclusion === "failure",
   };

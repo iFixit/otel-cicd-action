@@ -33914,7 +33914,7 @@ var esm$4 = /*#__PURE__*/Object.freeze({
 	trace: trace
 });
 
-async function traceStep(step) {
+async function traceStep(step, jobName, workflowName) {
     const tracer = trace.getTracer("otel-cicd-action");
     if (!step.completed_at || !step.started_at) {
         coreExports.info(`Step ${step.name} is not completed yet.`);
@@ -33926,7 +33926,7 @@ async function traceStep(step) {
     }
     const startTime = new Date(step.started_at);
     const completedTime = new Date(step.completed_at);
-    const attributes = stepToAttributes(step);
+    const attributes = stepToAttributes(step, jobName, workflowName);
     await tracer.startActiveSpan(step.name, { attributes, startTime }, async (span) => {
         const code = step.conclusion === "failure" ? SpanStatusCode.ERROR : SpanStatusCode.OK;
         span.setStatus({ code });
@@ -33934,7 +33934,7 @@ async function traceStep(step) {
         span.end(new Date(Math.max(startTime.getTime(), completedTime.getTime())));
     });
 }
-function stepToAttributes(step) {
+function stepToAttributes(step, jobName, workflowName) {
     return {
         "github.job.step.status": step.status,
         "github.job.step.conclusion": step.conclusion ?? undefined,
@@ -33942,6 +33942,8 @@ function stepToAttributes(step) {
         "github.job.step.number": step.number,
         "github.job.step.started_at": step.started_at ?? undefined,
         "github.job.step.completed_at": step.completed_at ?? undefined,
+        "github.job.name": jobName,
+        "github.workflow": workflowName,
         error: step.conclusion === "failure",
     };
 }
@@ -33962,7 +33964,7 @@ async function traceJob(job, annotations) {
         const code = job.conclusion === "failure" ? SpanStatusCode.ERROR : SpanStatusCode.OK;
         span.setStatus({ code });
         for (const step of job.steps ?? []) {
-            await traceStep(step);
+            await traceStep(step, job.name, job.workflow_name ?? "");
         }
         // Some skipped and post jobs return completed_at dates that are older than started_at
         span.end(new Date(Math.max(startTime.getTime(), completedTime.getTime())));
@@ -34008,7 +34010,7 @@ function jobToAttributes(job) {
         "github.job.completed_at": job.completed_at ?? undefined,
         "github.conclusion": job.conclusion ?? undefined, // FIXME: it overrides the workflow conclusion
         "github.job.check_run_url": job.check_run_url,
-        "github.job.workflow_name": job.workflow_name ?? undefined,
+        "github.workflow": job.workflow_name ?? undefined,
         "github.job.head_branch": job.head_branch ?? undefined,
         error: job.conclusion === "failure",
     };
@@ -34049,11 +34051,11 @@ function workflowRunToAttributes(workflowRun, prLabels) {
         // OpenTelemetry semantic convention CICD Pipeline Attributes
         // https://opentelemetry.io/docs/specs/semconv/attributes-registry/cicd/
         [ATTR_CICD_PIPELINE_NAME]: workflowRun.name ?? undefined,
-        [ATTR_CICD_PIPELINE_RUN_ID]: workflowRun.id,
-        "github.workflow_id": workflowRun.workflow_id,
-        "github.run_id": workflowRun.id,
-        "github.run_number": workflowRun.run_number,
-        "github.run_attempt": workflowRun.run_attempt ?? 1,
+        [ATTR_CICD_PIPELINE_RUN_ID]: workflowRun.id.toString(),
+        "github.workflow_id": workflowRun.workflow_id.toString(),
+        "github.run_id": workflowRun.id.toString(),
+        "github.run_number": workflowRun.run_number.toString(),
+        "github.run_attempt": workflowRun.run_attempt?.toString() ?? 1,
         ...referencedWorkflowsToAttributes(workflowRun.referenced_workflows),
         "github.url": workflowRun.url,
         "github.html_url": workflowRun.html_url,
@@ -34062,7 +34064,7 @@ function workflowRunToAttributes(workflowRun, prLabels) {
         "github.status": workflowRun.status ?? undefined,
         "github.workflow": workflowRun.name ?? undefined,
         "github.node_id": workflowRun.node_id,
-        "github.check_suite_id": workflowRun.check_suite_id,
+        "github.check_suite_id": workflowRun.check_suite_id?.toString(),
         "github.check_suite_node_id": workflowRun.check_suite_node_id,
         "github.conclusion": workflowRun.conclusion ?? undefined,
         "github.created_at": workflowRun.created_at,
