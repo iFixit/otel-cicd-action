@@ -4,7 +4,7 @@ import { type Attributes, SpanStatusCode, trace } from "@opentelemetry/api";
 
 type Step = NonNullable<components["schemas"]["job"]["steps"]>[number];
 
-async function traceStep(step: Step, jobName: string, workflowName: string) {
+async function traceStep(step: Step, parentAttributes: Attributes = {}) {
   const tracer = trace.getTracer("otel-cicd-action");
 
   if (!step.completed_at || !step.started_at) {
@@ -19,18 +19,20 @@ async function traceStep(step: Step, jobName: string, workflowName: string) {
 
   const startTime = new Date(step.started_at);
   const completedTime = new Date(step.completed_at);
-  const attributes = stepToAttributes(step, jobName, workflowName);
+  const attributes = {
+    ...parentAttributes,
+    ...stepToAttributes(step),
+  };
 
   await tracer.startActiveSpan(step.name, { attributes, startTime }, async (span) => {
     const code = step.conclusion === "failure" ? SpanStatusCode.ERROR : SpanStatusCode.OK;
     span.setStatus({ code });
 
-    // Some skipped and post jobs return completed_at dates that are older than started_at
     span.end(new Date(Math.max(startTime.getTime(), completedTime.getTime())));
   });
 }
 
-function stepToAttributes(step: Step, jobName: string, workflowName: string): Attributes {
+function stepToAttributes(step: Step): Attributes {
   return {
     "github.job.step.status": step.status,
     "github.job.step.conclusion": step.conclusion ?? undefined,
@@ -38,8 +40,6 @@ function stepToAttributes(step: Step, jobName: string, workflowName: string): At
     "github.job.step.number": step.number.toString(),
     "github.job.step.started_at": step.started_at ?? undefined,
     "github.job.step.completed_at": step.completed_at ?? undefined,
-    "github.job.name": jobName,
-    "github.workflow": workflowName,
     error: step.conclusion === "failure",
   };
 }

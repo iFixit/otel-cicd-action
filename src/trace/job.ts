@@ -12,7 +12,11 @@ import {
 } from "@opentelemetry/semantic-conventions/incubating";
 import { traceStep } from "./step";
 
-async function traceJob(job: components["schemas"]["job"], annotations?: components["schemas"]["check-annotation"][]) {
+async function traceJob(
+  job: components["schemas"]["job"],
+  annotations?: components["schemas"]["check-annotation"][],
+  workflowAttributes: Attributes = {},
+) {
   const tracer = trace.getTracer("otel-cicd-action");
 
   if (!job.completed_at) {
@@ -22,20 +26,20 @@ async function traceJob(job: components["schemas"]["job"], annotations?: compone
 
   const startTime = new Date(job.started_at);
   const completedTime = new Date(job.completed_at);
-  const attributes = {
+  const jobAttributes = {
+    ...workflowAttributes, // Inherit workflow attributes
     ...jobToAttributes(job),
     ...annotationsToAttributes(annotations),
   };
 
-  await tracer.startActiveSpan(job.name, { attributes, startTime }, async (span) => {
+  await tracer.startActiveSpan(job.name, { attributes: jobAttributes, startTime }, async (span) => {
     const code = job.conclusion === "failure" ? SpanStatusCode.ERROR : SpanStatusCode.OK;
     span.setStatus({ code });
 
     for (const step of job.steps ?? []) {
-      await traceStep(step, job.name, job.workflow_name ?? "");
+      await traceStep(step, jobAttributes);
     }
 
-    // Some skipped and post jobs return completed_at dates that are older than started_at
     span.end(new Date(Math.max(startTime.getTime(), completedTime.getTime())));
   });
 }

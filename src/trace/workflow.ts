@@ -12,11 +12,11 @@ async function traceWorkflowRun(
   const tracer = trace.getTracer("otel-cicd-action");
 
   const startTime = new Date(workflowRun.run_started_at ?? workflowRun.created_at);
-  const attributes = workflowRunToAttributes(workflowRun, prLabels);
+  const workflowAttributes = workflowRunToAttributes(workflowRun, prLabels);
 
   return await tracer.startActiveSpan(
     workflowRun.name ?? workflowRun.display_title,
-    { attributes, root: true, startTime },
+    { attributes: workflowAttributes, root: true, startTime },
     async (rootSpan) => {
       const code = workflowRun.conclusion === "failure" ? SpanStatusCode.ERROR : SpanStatusCode.OK;
       rootSpan.setStatus({ code });
@@ -29,7 +29,8 @@ async function traceWorkflowRun(
       }
 
       for (const job of jobs) {
-        await traceJob(job, jobAnnotations[job.id]);
+        // Pass workflow attributes to job spans
+        await traceJob(job, jobAnnotations[job.id], workflowAttributes);
       }
 
       rootSpan.end(new Date(workflowRun.updated_at));

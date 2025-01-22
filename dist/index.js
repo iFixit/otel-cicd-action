@@ -33914,7 +33914,7 @@ var esm$4 = /*#__PURE__*/Object.freeze({
 	trace: trace
 });
 
-async function traceStep(step, jobName, workflowName) {
+async function traceStep(step, parentAttributes = {}) {
     const tracer = trace.getTracer("otel-cicd-action");
     if (!step.completed_at || !step.started_at) {
         coreExports.info(`Step ${step.name} is not completed yet.`);
@@ -33926,15 +33926,17 @@ async function traceStep(step, jobName, workflowName) {
     }
     const startTime = new Date(step.started_at);
     const completedTime = new Date(step.completed_at);
-    const attributes = stepToAttributes(step, jobName, workflowName);
+    const attributes = {
+        ...parentAttributes,
+        ...stepToAttributes(step),
+    };
     await tracer.startActiveSpan(step.name, { attributes, startTime }, async (span) => {
         const code = step.conclusion === "failure" ? SpanStatusCode.ERROR : SpanStatusCode.OK;
         span.setStatus({ code });
-        // Some skipped and post jobs return completed_at dates that are older than started_at
         span.end(new Date(Math.max(startTime.getTime(), completedTime.getTime())));
     });
 }
-function stepToAttributes(step, jobName, workflowName) {
+function stepToAttributes(step) {
     return {
         "github.job.step.status": step.status,
         "github.job.step.conclusion": step.conclusion ?? undefined,
@@ -33942,13 +33944,11 @@ function stepToAttributes(step, jobName, workflowName) {
         "github.job.step.number": step.number.toString(),
         "github.job.step.started_at": step.started_at ?? undefined,
         "github.job.step.completed_at": step.completed_at ?? undefined,
-        "github.job.name": jobName,
-        "github.workflow": workflowName,
         error: step.conclusion === "failure",
     };
 }
 
-async function traceJob(job, annotations) {
+async function traceJob(job, annotations, workflowAttributes = {}) {
     const tracer = trace.getTracer("otel-cicd-action");
     if (!job.completed_at) {
         coreExports.info(`Job ${job.id} is not completed yet`);
@@ -33956,17 +33956,17 @@ async function traceJob(job, annotations) {
     }
     const startTime = new Date(job.started_at);
     const completedTime = new Date(job.completed_at);
-    const attributes = {
+    const jobAttributes = {
+        ...workflowAttributes, // Inherit workflow attributes
         ...jobToAttributes(job),
         ...annotationsToAttributes(annotations),
     };
-    await tracer.startActiveSpan(job.name, { attributes, startTime }, async (span) => {
+    await tracer.startActiveSpan(job.name, { attributes: jobAttributes, startTime }, async (span) => {
         const code = job.conclusion === "failure" ? SpanStatusCode.ERROR : SpanStatusCode.OK;
         span.setStatus({ code });
         for (const step of job.steps ?? []) {
-            await traceStep(step, job.name, job.workflow_name ?? "");
+            await traceStep(step, jobAttributes);
         }
-        // Some skipped and post jobs return completed_at dates that are older than started_at
         span.end(new Date(Math.max(startTime.getTime(), completedTime.getTime())));
     });
 }
@@ -34029,8 +34029,8 @@ function annotationsToAttributes(annotations) {
 async function traceWorkflowRun(workflowRun, jobs, jobAnnotations, prLabels) {
     const tracer = trace.getTracer("otel-cicd-action");
     const startTime = new Date(workflowRun.run_started_at ?? workflowRun.created_at);
-    const attributes = workflowRunToAttributes(workflowRun, prLabels);
-    return await tracer.startActiveSpan(workflowRun.name ?? workflowRun.display_title, { attributes, root: true, startTime }, async (rootSpan) => {
+    const workflowAttributes = workflowRunToAttributes(workflowRun, prLabels);
+    return await tracer.startActiveSpan(workflowRun.name ?? workflowRun.display_title, { attributes: workflowAttributes, root: true, startTime }, async (rootSpan) => {
         const code = workflowRun.conclusion === "failure" ? SpanStatusCode.ERROR : SpanStatusCode.OK;
         rootSpan.setStatus({ code });
         if (jobs.length > 0) {
@@ -34040,7 +34040,8 @@ async function traceWorkflowRun(workflowRun, jobs, jobAnnotations, prLabels) {
             queuedSpan.end(new Date(jobs[0].started_at));
         }
         for (const job of jobs) {
-            await traceJob(job, jobAnnotations[job.id]);
+            // Pass workflow attributes to job spans
+            await traceJob(job, jobAnnotations[job.id], workflowAttributes);
         }
         rootSpan.end(new Date(workflowRun.updated_at));
         return rootSpan.spanContext().traceId;
