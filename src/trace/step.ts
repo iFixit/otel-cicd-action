@@ -19,9 +19,10 @@ async function traceStep(step: Step, parentAttributes: Attributes = {}) {
 
   const startTime = new Date(step.started_at);
   const completedTime = new Date(step.completed_at);
+  const jobUrl = parentAttributes["github.job.html_url"] as string;
   const attributes = {
     ...parentAttributes,
-    ...stepToAttributes(step),
+    ...stepToAttributes(step, jobUrl),
   };
 
   await tracer.startActiveSpan(step.name, { attributes, startTime }, async (span) => {
@@ -32,7 +33,7 @@ async function traceStep(step: Step, parentAttributes: Attributes = {}) {
   });
 }
 
-function stepToAttributes(step: Step): Attributes {
+function stepToAttributes(step: Step, jobUrl: string): Attributes {
   return {
     "github.job.step.status": step.status,
     "github.job.step.conclusion": step.conclusion ?? undefined,
@@ -41,6 +42,7 @@ function stepToAttributes(step: Step): Attributes {
     "github.job.step.started_at": step.started_at ?? undefined,
     "github.job.step.completed_at": step.completed_at ?? undefined,
     error: step.conclusion === "failure",
+    "github.job.step.url": `${jobUrl}#step:${step.number}:1`,
   };
 }
 

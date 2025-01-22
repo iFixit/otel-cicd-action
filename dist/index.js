@@ -33926,9 +33926,10 @@ async function traceStep(step, parentAttributes = {}) {
     }
     const startTime = new Date(step.started_at);
     const completedTime = new Date(step.completed_at);
+    const jobUrl = parentAttributes["github.job.html_url"];
     const attributes = {
         ...parentAttributes,
-        ...stepToAttributes(step),
+        ...stepToAttributes(step, jobUrl),
     };
     await tracer.startActiveSpan(step.name, { attributes, startTime }, async (span) => {
         const code = step.conclusion === "failure" ? SpanStatusCode.ERROR : SpanStatusCode.OK;
@@ -33936,7 +33937,7 @@ async function traceStep(step, parentAttributes = {}) {
         span.end(new Date(Math.max(startTime.getTime(), completedTime.getTime())));
     });
 }
-function stepToAttributes(step) {
+function stepToAttributes(step, jobUrl) {
     return {
         "github.job.step.status": step.status,
         "github.job.step.conclusion": step.conclusion ?? undefined,
@@ -33945,6 +33946,7 @@ function stepToAttributes(step) {
         "github.job.step.started_at": step.started_at ?? undefined,
         "github.job.step.completed_at": step.completed_at ?? undefined,
         error: step.conclusion === "failure",
+        "github.job.step.url": `${jobUrl}#step:${step.number}:1`,
     };
 }
 
